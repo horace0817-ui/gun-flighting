@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>末日小鎮：神級血戰</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a24;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        /* UI 介面 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+            color: #fff;
+            text-shadow: 0 0 5px #00ffcc;
+            z-index: 10;
+        }
+        .hidden { display: none !important; }
+        
+        /* 準心 */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 204, 0.8);
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        /* 狀態列 */
+        #status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        #health-container {
+            width: 300px;
+            height: 20px;
+            background: rgba(0, 50, 50, 0.5);
+            border: 2px solid #0088cc;
+            margin-top: 5px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #health-bar {
+            width: 100%;
+            height: 100%;
+            background: #00ffcc;
+            box-shadow: 0 0 10px #00ffcc;
+            transition: width 0.2s;
+        }
+        #ammo-display {
+            font-size: 32px;
+            text-align: right;
+            color: #00ffcc;
+        }
+        #wave-display {
+            text-align: center;
+            font-size: 28px;
+            color: #ffaa00;
+            text-shadow: 0 0 10px #ffaa00;
+        }
+
+        /* 覆蓋層 (開始畫面、死亡、升級) */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 15, 25, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 20;
+            pointer-events: auto;
+        }
+        h1 {
+            font-size: 64px;
+            color: #00ffcc;
+            text-shadow: 0 0 20px #00ffcc;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+        }
+        h2 { font-size: 32px; color: #aaa; margin-bottom: 40px; }
+        .btn {
+            background: transparent;
+            border: 2px solid #00ffcc;
+            color: #00ffcc;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            margin: 10px;
+            box-shadow: 0 0 10px rgba(0,255,204,0.3) inset;
+            border-radius: 8px;
+        }
+        .btn:hover {
+            background: #00ffcc;
+            color: #000;
+            box-shadow: 0 0 20px #00ffcc;
+        }
+
+        /* 升級選單特製 */
+        #upgrade-cards {
+            display: flex;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .card {
+            border: 2px solid #ffaa00;
+            background: rgba(40, 40, 60, 0.9);
+            padding: 20px;
+            width: 200px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border-radius: 8px;
+        }
+        .card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px #ffaa00;
+            background: rgba(60, 60, 90, 0.9);
+        }
+        .card h3 { color: #ffaa00; margin-top: 0; }
+        .card p { font-size: 14px; color: #ddd; }
+
+        /* 受傷能量閃爍特效 */
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 40%, rgba(0, 255, 204, 0.4) 100%);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.1s;
+            z-index: 5;
+        }
+    </style>
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="game-container"></div>
+    <div id="damage-overlay"></div>
+
+    <!-- 遊戲中 UI -->
+    <div id="ui-layer" class="hidden">
+        <div id="status-bar">
+            <div>
+                <div style="color: #00ffcc;">防護盾能量 <span id="hp-text">100</span></div>
+                <div id="health-container"><div id="health-bar"></div></div>
+            </div>
+            <div id="wave-display">第 <span id="wave-text">1</span> 波<br><span style="font-size: 16px; color:#aaa;">剩餘目標: <span id="zombie-count">0</span></span></div>
+            <div id="ammo-display"><span id="ammo-current" style="font-size: 48px; color: #00ffcc;">30</span> / <span id="ammo-max" style="color: #88ffeb;">30</span></div>
+        </div>
+        <div id="crosshair"></div>
+        <div style="text-align: center; color: #bbb; font-size: 14px; background: rgba(0,0,0,0.4); padding: 5px; border-radius: 4px; align-self: center; pointer-events: none;">
+            W前進 | S後退 | <b style="color: #00ffcc; text-decoration: underline;">A向右</b> | <b style="color: #00ffcc; text-decoration: underline;">D向左</b> | 滑鼠左鍵射擊 | <b>按住右鍵開鏡瞄準</b> | R換彈(充能) | 空白鍵跳躍
+        </div>
+    </div>
+
+    <!-- 主選單 -->
+    <div id="start-screen" class="overlay">
+        <h1>末日小鎮</h1>
+        <h2>AK-47 暮光大街</h2>
+        <p style="max-width: 600px; text-align: center; line-height: 1.6; color: #ccc; margin-bottom: 30px; font-size: 16px;">
+            你被派往守護小鎮的中央大街！兩側林立著高聳的建築，<br>
+            更具威脅的 3D 變異生物正成群結隊沿著大街向你奔來。<br>
+            手握經典 <b>AK-47 步槍</b>，注意：已經根據戰術習慣將 <b style="color: #00ffcc;">A 鍵修改為向右</b>、<b style="color: #00ffcc;">D 鍵修改為向左</b>！<br>
+            <span style="color: #00ffcc; font-weight: bold;">[新功能]：現在可以「按住滑鼠右鍵」開鏡機瞄，獲得更好的精確度！</span>
+        </p>
+        <button class="btn" id="start-btn">開始守護</button>
+    </div>
+
+    <!-- 升級選單 -->
+    <div id="upgrade-screen" class="overlay hidden">
+        <h1 style="color: #ffaa00; text-shadow: 0 0 20px #ffaa00;">街道清理完畢</h1>
+        <h2>選擇一項神級科技升級</h2>
+        <div id="upgrade-cards">
+            <!-- 卡片由 JS 動態生成 -->
+        </div>
+    </div>
+
+    <!-- 死亡畫面 -->
+    <div id="death-screen" class="overlay hidden">
+        <h1 style="color: #ff5555; text-shadow: 0 0 20px #ff5555;">防護盾過載</h1>
+        <h2>成功防守波數: <span id="final-wave">1</span></h2>
+        <button class="btn" id="restart-btn">重啟系統</button>
+    </div>
+
+<script>
+/**
+ * 末日小鎮：神級血戰 - 遊戲核心邏輯 (明亮暮光+AK47與小鎮街道版)
+ */
+
+// --- 全域變數與遊戲狀態 ---
+let scene, camera, renderer;
+let pitchObject, yawObject; // FPS 控制節點
+let clock = new THREE.Clock();
+
+// 玩家屬性
+const player = {
+    hp: 100,
+    maxHp: 100,
+    speed: 15,
+    velocity: new THREE.Vector3(),
+    direction: new THREE.Vector3(),
+    height: 2,
+    isDead: false,
+    canJump: false,
+    isAiming: false // 是否正在開鏡 (右鍵)
+};
+
+// 武器屬性 (AK-47 步槍風格)
+const weapon = {
+    damage: 40,
+    fireRate: 0.12, // AK-47 較快的射擊速率
+    lastFireTime: 0,
+    clipSize: 30, // 經典 30 發彈匣
+    currentAmmo: 30,
+    reloadTime: 1.8,
+    isReloading: false
+};
+
+// 遊戲進程
+const game = {
+    wave: 1,
+    zombiesToSpawn: 0,
+    zombiesAlive: 0,
+    zombiesTotal: 5,
+    state: 'menu', // menu, playing, upgrading, dead
+    keys: { w: false, a: false, s: false, d: false, space: false }
+};
+
+// 物件陣列
+let buildings = [];
+let zombies = [];
+let particles = [];
+
+// 視覺反饋
+let screenShakeTime = 0;
+let muzzleFlashLight;
+
+// --- 初始化 Three.js ---
+function init() {
+    const container = document.getElementById('game-container');
+
+    // 場景與濃霧 (明亮的藍紫色暮光迷霧)
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e); 
+    scene.fog = new THREE.FogExp2(0x1a1a2e, 0.012); 
+
+    // 攝影機
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    
+    // FPS 控制結構
+    pitchObject = new THREE.Object3D();
+    pitchObject.add(camera);
+    yawObject = new THREE.Object3D();
+    yawObject.position.set(0, player.height, 0); // 從街道起點出發
+    yawObject.add(pitchObject);
+    scene.add(yawObject);
+
+    // 渲染器
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    // 燈光：提升環境光，呈現暮光的淡藍紫色調
+    const ambientLight = new THREE.AmbientLight(0x555577, 1.4);
+    scene.add(ambientLight);
+
+    // 全局方向光（模擬月光），提供柔和陰影與良好能見度
+    const sunLight = new THREE.DirectionalLight(0x9999ff, 0.8);
+    sunLight.position.set(30, 80, 30);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 1024;
+    sunLight.shadow.mapSize.height = 1024;
+    scene.add(sunLight);
+
+    // 玩家聚光燈
+    const flashlight = new THREE.SpotLight(0xffffff, 1.2, 60, Math.PI / 6, 0.5, 1);
+    flashlight.position.set(0, -0.2, 0);
+    flashlight.target.position.set(0, 0, -1);
+    camera.add(flashlight);
+    camera.add(flashlight.target);
+
+    // 槍口閃光燈 (射擊時亮起)
+    muzzleFlashLight = new THREE.PointLight(0xffaa44, 0, 15);
+    muzzleFlashLight.position.set(0.2, -0.25, -1.2);
+    camera.add(muzzleFlashLight);
+
+    buildEnvironment();
+    createWeaponModel();
+
+    // 防止右鍵選單彈出
+    document.addEventListener('contextmenu', e => e.preventDefault());
+
+    // 事件監聽
+    window.addEventListener('resize', onWindowResize);
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mousemove', onMouseMove);
+
+    // UI 按鈕
+    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('restart-btn').addEventListener('click', resetGame);
+
+    animate();
+}
+
+// --- 建立末日小鎮環境（街道與兩側建築物） ---
+function buildEnvironment() {
+    const streetWidth = 22; // 中央街道寬度
+    const mapLength = 260;  // 街道長度
+
+    // 地板 (調整為明亮的灰藍色街道與人行道)
+    const floorGeo = new THREE.PlaneGeometry(300, mapLength, 32, 32);
+    const floorMat = new THREE.MeshStandardMaterial({ 
+        color: 0x222233, 
+        roughness: 0.85,
+        flatShading: true
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // 繪製街道標線 (亮黃色虛線)
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+    const lineGeo = new THREE.PlaneGeometry(0.4, 6);
+    for (let z = -mapLength/2; z < mapLength/2; z += 15) {
+        const line = new THREE.Mesh(lineGeo, lineMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(0, 0.02, z);
+        scene.add(line);
+    }
+
+    // 在街道兩側生成高聳整齊的建築物
+    const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
+    
+    // 生成兩側建築物群
+    for (let z = -mapLength/2; z < mapLength/2; z += 14) {
+        // 隨機一些高度與寬度，讓建築有層次
+        const leftHeight = 15 + Math.random() * 25;
+        const leftWidth = 10 + Math.random() * 8;
+        const leftDepth = 10 + Math.random() * 4;
+        
+        const rightHeight = 15 + Math.random() * 25;
+        const rightWidth = 10 + Math.random() * 8;
+        const rightDepth = 10 + Math.random() * 4;
+
+        // 不同的外牆顏色增加美觀度 (暮光科幻風)
+        const colors = [0x1a1a2e, 0x24243e, 0x1f1f2e, 0x2a2a3a];
+        
+        // 左側大樓 (X 軸為負)
+        const leftMat = new THREE.MeshStandardMaterial({ 
+            color: colors[Math.floor(Math.random() * colors.length)], 
+            roughness: 0.6 
+        });
+        const bLeft = new THREE.Mesh(buildingGeo, leftMat);
+        // 置於街道左側人行道邊緣
+        bLeft.position.set(-(streetWidth/2 + leftWidth/2), leftHeight/2, z);
+        bLeft.scale.set(leftWidth, leftHeight, leftDepth);
+        bLeft.castShadow = true;
+        bLeft.receiveShadow = true;
+        scene.add(bLeft);
+
+        bLeft.geometry.computeBoundingBox();
+        buildings.push(new THREE.Box3().setFromObject(bLeft));
+
+        // 右側大樓 (X 軸為正)
+        const rightMat = new THREE.MeshStandardMaterial({ 
+            color: colors[Math.floor(Math.random() * colors.length)], 
+            roughness: 0.6 
+        });
+        const bRight = new THREE.Mesh(buildingGeo, rightMat);
+        // 置於街道右側人行道邊緣
+        bRight.position.set((streetWidth/2 + rightWidth/2), rightHeight/2, z);
+        bRight.scale.set(rightWidth, rightHeight, rightDepth);
+        bRight.castShadow = true;
+        bRight.receiveShadow = true;
+        scene.add(bRight);
+
+        bRight.geometry.computeBoundingBox();
+        buildings.push(new THREE.Box3().setFromObject(bRight));
+
+        // 添加窗戶發光點，讓建築看起來更真實生動
+        if (Math.random() > 0.3) {
+            const windowGeo = new THREE.BoxGeometry(0.1, 0.8, 0.8);
+            const windowMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            const win = new THREE.Mesh(windowGeo, windowMat);
+            // 貼在左側大樓朝向街心的一面
+            win.position.set(-(streetWidth/2 + 0.1), 5 + Math.random() * 8, z);
+            scene.add(win);
+        }
+        if (Math.random() > 0.3) {
+            const windowGeo = new THREE.BoxGeometry(0.1, 0.8, 0.8);
+            const windowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+            const win = new THREE.Mesh(windowGeo, windowMat);
+            // 貼在右側大樓朝向街心的一面
+            win.position.set((streetWidth/2 + 0.1), 5 + Math.random() * 8, z);
+            scene.add(win);
+        }
+    }
+}
+
+// --- 建立經典 AK-47 步槍模型 ---
+let gunMesh;
+function createWeaponModel() {
+    const gunGroup = new THREE.Group();
+    
+    // 鋼鐵金屬材質 (黑灰色)
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x1f2124, metalness: 0.8, roughness: 0.2 });
+    // 紅木材質 (紅褐色)
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a2d13, roughness: 0.8 });
+
+    // 1. 機匣與防塵蓋 (主身)
+    const bodyGeo = new THREE.BoxGeometry(0.06, 0.1, 0.35);
+    const body = new THREE.Mesh(bodyGeo, steelMat);
+    body.position.set(0, 0, 0);
+    gunGroup.add(body);
+
+    // 2. 經典木質固定槍托
+    const stockGeo = new THREE.BoxGeometry(0.05, 0.09, 0.25);
+    const stock = new THREE.Mesh(stockGeo, woodMat);
+    stock.position.set(0, -0.02, 0.28);
+    stock.rotation.x = 0.08; // 槍托微微下傾
+    gunGroup.add(stock);
+
+    // 3. 木質護木 (Handguard)
+    const handguardGeo = new THREE.BoxGeometry(0.05, 0.07, 0.22);
+    const handguard = new THREE.Mesh(handguardGeo, woodMat);
+    handguard.position.set(0, -0.015, -0.25);
+    gunGroup.add(handguard);
+
+    // 4. 鋼鐵槍管 (Barrel) 與導氣管
+    const barrelGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.3, 8);
+    const barrel = new THREE.Mesh(barrelGeo, steelMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, -0.45);
+    gunGroup.add(barrel);
+
+    // 5. 導氣管 (Gas Tube - 位於槍管上方)
+    const gasTubeGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.2, 8);
+    const gasTube = new THREE.Mesh(gasTubeGeo, steelMat);
+    gasTube.rotation.x = Math.PI / 2;
+    gasTube.position.set(0, 0.045, -0.35);
+    gunGroup.add(gasTube);
+
+    // 6. 經典 AK 弧形彎曲彈匣 (Banana Magazine)
+    const magGroup = new THREE.Group();
+    const magGeo1 = new THREE.BoxGeometry(0.04, 0.16, 0.07);
+    const m1 = new THREE.Mesh(magGeo1, steelMat);
+    m1.position.set(0, -0.1, -0.05);
+    m1.rotation.x = 0.25; // 向前彎曲傾斜
+    magGroup.add(m1);
+    
+    const magGeo2 = new THREE.BoxGeometry(0.04, 0.08, 0.07);
+    const m2 = new THREE.Mesh(magGeo2, steelMat);
+    m2.position.set(0, -0.18, -0.02);
+    m2.rotation.x = 0.45; // 更彎曲的底端
+    magGroup.add(m2);
+    
+    gunGroup.add(magGroup);
+
+    // 7. 準星 (Front Sight)
+    const frontSightGeo = new THREE.BoxGeometry(0.01, 0.04, 0.01);
+    const frontSight = new THREE.Mesh(frontSightGeo, steelMat);
+    frontSight.position.set(0, 0.06, -0.58);
+    gunGroup.add(frontSight);
+
+    // 8. 握把 (Pistol Grip)
+    const gripGeo = new THREE.BoxGeometry(0.04, 0.1, 0.05);
+    const grip = new THREE.Mesh(gripGeo, woodMat);
+    grip.position.set(0, -0.09, 0.05);
+    grip.rotation.x = -0.3; // 握把往後傾斜
+    gunGroup.add(grip);
+
+    // 調整整把 AK-47 在第一人稱畫面中的持槍位置與角度
+    gunGroup.position.set(0.24, -0.22, -0.48); 
+    gunGroup.rotation.y = -0.05; // 稍微往左斜指向中心
+    camera.add(gunGroup);
+    gunMesh = gunGroup;
+}
+
+// --- 立體變異體生物類別 (擁有細緻肢體與服裝，全新生動表情) ---
+class Zombie {
+    constructor(x, z, hpMultiplier, speedMultiplier) {
+        this.hp = 50 * hpMultiplier;
+        this.maxHp = this.hp;
+        this.speed = (3.5 + Math.random() * 3.5) * speedMultiplier; 
+        this.damage = 12;
+        this.attackCooldown = 0;
+        this.isDead = false;
+
+        this.group = new THREE.Group();
+        this.group.position.set(x, 0, z);
+
+        // 材質定義
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0x4a7c59, roughness: 0.8 }); // 綠色皮膚
+        const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2b4c7e, roughness: 0.7 }); // 藍色撕裂上衣
+        const pantsMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 }); // 灰色破舊褲子
+
+        // 1. 軀幹 (Body)
+        const torsoGeo = new THREE.BoxGeometry(0.7, 0.9, 0.35);
+        this.torso = new THREE.Mesh(torsoGeo, shirtMat);
+        this.torso.position.y = 1.15; // 離地高度
+        this.torso.castShadow = true;
+        this.group.add(this.torso);
+
+        // 2. 頭部 (Head)
+        const headGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+        this.head = new THREE.Mesh(headGeo, skinMat);
+        this.head.position.y = 1.15 + 0.45 + 0.15;
+        this.head.castShadow = true;
+        this.group.add(this.head);
+
+        // 閃亮的霓虹雙眼 (高對比發光)
+        const eyeGeo = new THREE.BoxGeometry(0.08, 0.04, 0.04);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+        const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+        leftEye.position.set(-0.12, 0.08, -0.23);
+        const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+        rightEye.position.set(0.12, 0.08, -0.23);
+        this.head.add(leftEye);
+        this.head.add(rightEye);
+
+        // --- [新增表情結構] ---
+        // A. 憤怒的深色眉毛 (V 字型向下斜折)
+        const browMat = new THREE.MeshBasicMaterial({ color: 0x111d15 });
+        const leftBrowGeo = new THREE.BoxGeometry(0.12, 0.04, 0.05);
+        const leftBrow = new THREE.Mesh(leftBrowGeo, browMat);
+        leftBrow.position.set(-0.11, 0.15, -0.24);
+        leftBrow.rotation.z = -0.25; // 內側向下傾斜
+        this.head.add(leftBrow);
+
+        const rightBrowGeo = new THREE.BoxGeometry(0.12, 0.04, 0.05);
+        const rightBrow = new THREE.Mesh(rightBrowGeo, browMat);
+        rightBrow.position.set(0.11, 0.15, -0.24);
+        rightBrow.rotation.z = 0.25; // 內側向下傾斜
+        this.head.add(rightBrow);
+
+        // B. 咆哮怒吼的大嘴 (大開的黑色深淵背景與霓虹尖牙)
+        const mouthBgGeo = new THREE.BoxGeometry(0.24, 0.1, 0.05);
+        const mouthBgMat = new THREE.MeshBasicMaterial({ color: 0x111d15 }); // 黑色嘴腔深處
+        const mouthBg = new THREE.Mesh(mouthBgGeo, mouthBgMat);
+        mouthBg.position.set(0, -0.11, -0.24);
+        this.head.add(mouthBg);
+
+        // 發光能量犬齒 (完全科幻風，無血腥)
+        const toothMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+        const toothGeo = new THREE.BoxGeometry(0.04, 0.04, 0.06);
+        
+        // 上顎左尖牙
+        const toothT1 = new THREE.Mesh(toothGeo, toothMat);
+        toothT1.position.set(-0.06, 0.03, 0.01);
+        mouthBg.add(toothT1);
+
+        // 上顎右尖牙
+        const toothT2 = new THREE.Mesh(toothGeo, toothMat);
+        toothT2.position.set(0.06, 0.03, 0.01);
+        mouthBg.add(toothT2);
+
+        // 下顎中尖牙
+        const toothB1 = new THREE.Mesh(toothGeo, toothMat);
+        toothB1.position.set(0, -0.03, 0.01);
+        mouthBg.add(toothB1);
+
+        // 3. 雙手臂 (Arms) - 預設向前水平伸出
+        const armGeo = new THREE.BoxGeometry(0.15, 0.15, 0.7);
+        
+        this.leftArm = new THREE.Mesh(armGeo, skinMat);
+        this.leftArm.position.set(-0.4, 1.25, -0.3); // 向前伸出
+        this.group.add(this.leftArm);
+
+        this.rightArm = new THREE.Mesh(armGeo, skinMat);
+        this.rightArm.position.set(0.4, 1.25, -0.3); // 向前伸出
+        this.group.add(this.rightArm);
+
+        // 4. 雙腿 (Legs)
+        const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.22);
+        
+        this.leftLeg = new THREE.Mesh(legGeo, pantsMat);
+        this.leftLeg.position.set(-0.2, 0.35, 0);
+        this.leftLeg.castShadow = true;
+        this.group.add(this.leftLeg);
+
+        this.rightLeg = new THREE.Mesh(legGeo, pantsMat);
+        this.rightLeg.position.set(0.2, 0.35, 0);
+        this.rightLeg.castShadow = true;
+        this.group.add(this.rightLeg);
+
+        scene.add(this.group);
+        
+        // 動畫變數 (隨機起始相位，避免動作太整齊)
+        this.walkCycle = Math.random() * Math.PI * 2;
+    }
+
+    update(dt) {
+        if (this.isDead) return;
+
+        const distanceToPlayer = this.group.position.distanceTo(yawObject.position);
+
+        // 轉向玩家
+        const dx = yawObject.position.x - this.group.position.x;
+        const dz = yawObject.position.z - this.group.position.z;
+        const angle = Math.atan2(dx, dz);
+        this.group.rotation.y = angle;
+
+        // 攻擊或移動
+        if (distanceToPlayer < 2.2) {
+            if (this.attackCooldown <= 0) {
+                takeDamage(this.damage);
+                this.attackCooldown = 1.2;
+                // 攻擊時手臂猛烈往下揮
+                this.leftArm.rotation.x = 0.5;
+                this.rightArm.rotation.x = 0.5;
+            }
+        } else {
+            // 移動
+            const moveStep = this.speed * dt;
+            
+            const nextX = this.group.position.x + Math.sin(angle) * moveStep;
+            const nextZ = this.group.position.z + Math.cos(angle) * moveStep;
+            
+            this.group.position.x = nextX;
+            this.group.position.z = nextZ;
+
+            // 立體肢體走路動畫 (雙腿前後自然交替擺動，雙手輕微上下晃動)
+            this.walkCycle += dt * 8;
+            
+            // 雙腿交替
+            this.leftLeg.rotation.x = Math.sin(this.walkCycle) * 0.5;
+            this.rightLeg.rotation.x = -Math.sin(this.walkCycle) * 0.5;
+            
+            // 雙臂微微揮舞，看起來更有逼近感
+            this.leftArm.rotation.x = Math.cos(this.walkCycle) * 0.15;
+            this.rightArm.rotation.x = -Math.cos(this.walkCycle) * 0.15;
+            this.leftArm.position.y = 1.25 + Math.sin(this.walkCycle) * 0.05;
+            this.rightArm.position.y = 1.25 - Math.sin(this.walkCycle) * 0.05;
+
+            // 身軀隨步伐輕微起伏
+            this.torso.position.y = 1.15 + Math.abs(Math.sin(this.walkCycle)) * 0.04;
+            this.head.position.y = (1.15 + 0.45 + 0.15) + Math.abs(Math.sin(this.walkCycle)) * 0.04;
+        }
+
+        if (this.attackCooldown > 0) {
+            this.attackCooldown -= dt;
+            if (this.attackCooldown < 0.8) {
+                // 恢復伸手臂姿勢
+                this.leftArm.rotation.x = 0;
+                this.rightArm.rotation.x = 0;
+            }
+        }
+    }
+
+    takeHit(dmg) {
+        this.hp -= dmg;
+        // 觸發亮金色能量火花（完全無血腥，適合所有年齡層）
+        createEnergySparks(this.head.getWorldPosition(new THREE.Vector3()));
+        
+        if (this.hp <= 0) {
+            this.die();
+        } else {
+            // 受到子彈衝擊時稍微後仰
+            this.head.rotation.x = -0.3;
+            setTimeout(() => { if(!this.isDead) this.head.rotation.x = 0; }, 120);
+        }
+    }
+
+    die() {
+        this.isDead = true;
+        scene.remove(this.group);
+        game.zombiesAlive--;
+        updateUI();
+        
+        if (game.zombiesAlive <= 0 && game.zombiesToSpawn <= 0) {
+            setTimeout(waveComplete, 800);
+        }
+    }
+}
+
+// --- 粒子特效 (璀璨金色能量火花) ---
+function createEnergySparks(position) {
+    const particleCount = 15;
+    const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    // 使用明亮的金黃色，健康、科幻且無血腥
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+    
+    for (let i = 0; i < particleCount; i++) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(position);
+        
+        // 向上與四周噴散
+        const velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 6,
+            Math.random() * 6 + 3,
+            (Math.random() - 0.5) * 6
+        );
+        
+        particles.push({ mesh, velocity, life: 0.6 });
+        scene.add(mesh);
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.life -= dt;
+        if (p.life <= 0) {
+            scene.remove(p.mesh);
+            particles.splice(i, 1);
+            continue;
+        }
+        p.velocity.y -= 12 * dt; // 重力模擬
+        p.mesh.position.addScaledVector(p.velocity, dt);
+        p.mesh.scale.setScalar(p.life / 0.6);
+    }
+}
+
+// --- 控制與輸入（A與D鍵對調） ---
+function onKeyDown(event) {
+    switch (event.code) {
+        case 'KeyW': game.keys.w = true; break;
+        case 'KeyA': game.keys.a = true; break; // A 被指定為往右
+        case 'KeyS': game.keys.s = true; break;
+        case 'KeyD': game.keys.d = true; break; // D 被指定為往左
+        case 'Space': 
+            if (player.canJump) {
+                player.velocity.y = 9;
+                player.canJump = false;
+            }
+            break;
+        case 'KeyR': reloadWeapon(); break;
+    }
+}
+
+function onKeyUp(event) {
+    switch (event.code) {
+        case 'KeyW': game.keys.w = false; break;
+        case 'KeyA': game.keys.a = false; break;
+        case 'KeyS': game.keys.s = false; break;
+        case 'KeyD': game.keys.d = false; break;
+    }
+}
+
+function onMouseMove(event) {
+    if (document.pointerLockElement === document.body && game.state === 'playing') {
+        const movementX = event.movementX || 0;
+        const movementY = event.movementY || 0;
+
+        // 【開鏡時靈敏度微調減半，提供完美的射擊手感】
+        const sensitivityMultiplier = player.isAiming ? 0.45 : 1.0;
+
+        yawObject.rotation.y -= movementX * 0.0022 * sensitivityMultiplier;
+        pitchObject.rotation.x -= movementY * 0.0022 * sensitivityMultiplier;
+
+        pitchObject.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitchObject.rotation.x));
+    }
+}
+
+function onMouseDown(event) {
+    if (game.state !== 'playing') return;
+    if (document.pointerLockElement !== document.body) {
+        document.body.requestPointerLock();
+        return;
+    }
+    
+    if (event.button === 0) { // 滑鼠左鍵：發射
+        shoot();
+    } else if (event.button === 2) { // 滑鼠右鍵：開鏡瞄準 (ADS)
+        player.isAiming = true;
+    }
+}
+
+function onMouseUp(event) {
+    if (game.state !== 'playing') return;
+    if (event.button === 2) { // 釋放滑鼠右鍵：收鏡
+        player.isAiming = false;
+    }
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// --- 射擊邏輯 (AK-47 實體彈藥發射) ---
+function shoot() {
+    if (weapon.isReloading) return;
+    if (weapon.currentAmmo <= 0) {
+        reloadWeapon();
+        return;
+    }
+
+    const time = clock.getElapsedTime();
+    if (time - weapon.lastFireTime < weapon.fireRate) return;
+
+    weapon.lastFireTime = time;
+    weapon.currentAmmo--;
+    updateUI();
+
+    // 槍口金色火花閃爍
+    muzzleFlashLight.intensity = 5;
+    setTimeout(() => muzzleFlashLight.intensity = 0, 45);
+    
+    // AK-47 後座力強烈動畫 (根據是否開鏡動態調整後座力大小，開鏡時後座力晃動幅度較精準小幅度)
+    const kickZ = player.isAiming ? -0.35 : -0.40;
+    const kickY = player.isAiming ? -0.13 : -0.20;
+    const kickRot = player.isAiming ? 0.04 : 0.12;
+
+    gunMesh.position.z = kickZ; 
+    gunMesh.position.y = kickY;
+    gunMesh.rotation.x = kickRot; // 槍口上跳
+    
+    setTimeout(() => {
+        // 重置位置由 animate 迴圈中的 lerp 處理
+        gunMesh.rotation.x = 0;
+    }, 70);
+
+    screenShakeTime = player.isAiming ? 0.04 : 0.09; // 開鏡時畫面震動減小，利於壓槍
+
+    // 射線偵測
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+    let hitSomething = false;
+    let closestZombie = null;
+    let closestDist = Infinity;
+
+    // 將所有變異體的碰撞盒集合起來進行檢測
+    zombies.forEach(zombie => {
+        if (zombie.isDead) return;
+        const intersects = raycaster.intersectObjects([zombie.torso, zombie.head, zombie.leftArm, zombie.rightArm]);
+        if (intersects.length > 0) {
+            if (intersects[0].distance < closestDist) {
+                closestDist = intersects[0].distance;
+                closestZombie = zombie;
+                hitSomething = true;
+            }
+        }
+    });
+
+    if (hitSomething && closestZombie) {
+        closestZombie.takeHit(weapon.damage);
+    }
+}
+
+function reloadWeapon() {
+    if (weapon.isReloading || weapon.currentAmmo === weapon.clipSize) return;
+    
+    weapon.isReloading = true;
+    player.isAiming = false; // 換彈時強制退出開鏡
+    document.getElementById('ammo-current').textContent = "換彈中";
+    document.getElementById('ammo-current').style.color = "#ffaa00";
+
+    // 經典 AK 換彈動畫 (槍口偏向側方)
+    gunMesh.rotation.z = -0.3;
+    gunMesh.rotation.x = -0.2;
+
+    setTimeout(() => {
+        if(game.state !== 'playing') {
+            weapon.isReloading = false;
+            return;
+        }
+        weapon.currentAmmo = weapon.clipSize;
+        weapon.isReloading = false;
+        gunMesh.rotation.z = 0;
+        gunMesh.rotation.x = 0;
+        updateUI();
+        document.getElementById('ammo-current').style.color = "#00ffcc";
+    }, weapon.reloadTime * 1000);
+}
+
+// --- 玩家護盾受損與恢復 ---
+function takeDamage(amount) {
+    player.hp -= amount;
+    if (player.hp < 0) player.hp = 0;
+    
+    // 受傷能量閃動
+    const overlay = document.getElementById('damage-overlay');
+    overlay.style.opacity = 1;
+    setTimeout(() => overlay.style.opacity = 0, 180);
+
+    screenShakeTime = 0.22;
+    updateUI();
+
+    if (player.hp === 0 && !player.isDead) {
+        playerDie();
+    }
+}
+
+function playerDie() {
+    player.isDead = true;
+    player.isAiming = false;
+    game.state = 'dead';
+    document.exitPointerLock();
+    
+    pitchObject.rotation.x = -Math.PI / 4;
+    yawObject.position.y = 0.6;
+
+    document.getElementById('ui-layer').classList.add('hidden');
+    document.getElementById('death-screen').classList.remove('hidden');
+    document.getElementById('final-wave').textContent = game.wave;
+}
+
+// --- 波數與生成 ---
+function spawnZombie() {
+    if (game.zombiesToSpawn <= 0 || game.state !== 'playing') return;
+
+    // 在玩家前方的街道盡頭或周圍生成，保持在大街兩側視野內
+    const zOffset = (Math.random() > 0.5 ? 1 : -1) * (40 + Math.random() * 30);
+    const z = yawObject.position.z + zOffset;
+    
+    // 限制 X 軸在街道內 (左右 -9 到 9 之間)
+    const x = (Math.random() - 0.5) * 16;
+
+    const hpMult = 1 + (game.wave - 1) * 0.25;
+    const spdMult = 1 + (game.wave - 1) * 0.08;
+
+    const zomb = new Zombie(x, z, hpMult, spdMult);
+    zombies.push(zomb);
+    
+    game.zombiesToSpawn--;
+    game.zombiesAlive++;
+    updateUI();
+
+    const spawnDelay = Math.max(500, 1500 - game.wave * 70);
+    setTimeout(spawnZombie, spawnDelay);
+}
+
+function startWave() {
+    game.zombiesTotal = 5 + Math.floor(game.wave * 2);
+    game.zombiesToSpawn = game.zombiesTotal;
+    game.zombiesAlive = 0;
+    updateUI();
+    spawnZombie();
+}
+
+function waveComplete() {
+    game.state = 'upgrading';
+    player.isAiming = false; // 升級時重置開鏡
+    document.exitPointerLock();
+    document.getElementById('ui-layer').classList.add('hidden');
+    showUpgradeMenu();
+}
+
+// --- 神級科技升級清單 ---
+const upgrades = [
+    { title: "鋼鐵穿甲彈", desc: "AK-47 威力大增，傷害 +15", apply: () => weapon.damage += 15 },
+    { title: "雙滾筒彈匣", desc: "AK-47 彈量翻倍，彈量 +10 發", apply: () => weapon.clipSize += 10 },
+    { title: "雙槓桿機匣", desc: "步槍連發速率提升 20%", apply: () => weapon.fireRate *= 0.8 },
+    { title: "超導複進簧", desc: "換彈拉栓時間減少 25%", apply: () => weapon.reloadTime *= 0.75 },
+    { title: "泰坦能量護盾", desc: "防護盾上限 +20並回滿", apply: () => { player.maxHp += 20; player.hp = player.maxHp; } },
+    { title: "敏捷戰術靴", desc: "移動速度提升 12%", apply: () => player.speed *= 1.12 }
+];
+
+function showUpgradeMenu() {
+    const screen = document.getElementById('upgrade-screen');
+    const cardsContainer = document.getElementById('upgrade-cards');
+    cardsContainer.innerHTML = ''; 
+
+    const shuffled = [...upgrades].sort(() => 0.5 - Math.random());
+    const choices = shuffled.slice(0, 3);
+
+    choices.forEach(choice => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h3>${choice.title}</h3><p>${choice.desc}</p>`;
+        card.onclick = () => {
+            choice.apply();
+            weapon.currentAmmo = weapon.clipSize;
+            screen.classList.add('hidden');
+            document.getElementById('ui-layer').classList.remove('hidden');
+            
+            game.wave++;
+            game.state = 'playing';
+            document.body.requestPointerLock();
+            startWave();
+        };
+        cardsContainer.appendChild(card);
+    });
+
+    screen.classList.remove('hidden');
+}
+
+// --- 遊戲狀態控制 ---
+function startGame() {
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('ui-layer').classList.remove('hidden');
+    document.body.requestPointerLock();
+    game.state = 'playing';
+    startWave();
+}
+
+function resetGame() {
+    document.getElementById('death-screen').classList.add('hidden');
+    document.getElementById('ui-layer').classList.remove('hidden');
+    
+    // 重置
+    player.hp = 100;
+    player.maxHp = 100;
+    player.speed = 15;
+    player.isDead = false;
+    player.isAiming = false;
+    yawObject.position.set(0, player.height, 0); // 回到起點
+    pitchObject.rotation.set(0,0,0);
+    yawObject.rotation.set(0,0,0);
+
+    weapon.damage = 40;
+    weapon.fireRate = 0.12;
+    weapon.clipSize = 30;
+    weapon.currentAmmo = 30;
+    weapon.reloadTime = 1.8;
+
+    zombies.forEach(z => scene.remove(z.group));
+    zombies = [];
+    
+    game.wave = 1;
+    game.state = 'playing';
+    document.body.requestPointerLock();
+    startWave();
+}
+
+function updateUI() {
+    document.getElementById('hp-text').textContent = Math.floor(player.hp);
+    document.getElementById('health-bar').style.width = `${(player.hp / player.maxHp) * 100}%`;
+    document.getElementById('ammo-current').textContent = weapon.currentAmmo;
+    document.getElementById('ammo-max').textContent = weapon.clipSize;
+    document.getElementById('wave-text').textContent = game.wave;
+    document.getElementById('zombie-count').textContent = game.zombiesAlive + game.zombiesToSpawn;
+}
+
+// --- 物理與更新迴圈 (已套用 A/D 左右換掉) ---
+function updatePlayer(dt) {
+    player.velocity.y -= 25 * dt; // 重力
+
+    player.direction.z = Number(game.keys.w) - Number(game.keys.s);
+    
+    // 把 A 鍵與 D 鍵的左右移動方向完全對調
+    player.direction.x = Number(game.keys.a) - Number(game.keys.d);
+    player.direction.normalize();
+
+    if (game.keys.w || game.keys.s) player.velocity.z -= player.direction.z * player.speed * dt * 10;
+    if (game.keys.a || game.keys.d) player.velocity.x -= player.direction.x * player.speed * dt * 10;
+
+    player.velocity.x -= player.velocity.x * 10 * dt;
+    player.velocity.z -= player.velocity.z * 10 * dt;
+
+    yawObject.translateX(player.velocity.x * dt);
+    yawObject.translateZ(player.velocity.z * dt);
+    yawObject.position.y += player.velocity.y * dt;
+
+    if (yawObject.position.y < player.height) {
+        player.velocity.y = 0;
+        yawObject.position.y = player.height;
+        player.canJump = true;
+    }
+
+    // 街道地圖邊界限制：防止玩家穿過兩側高聳大樓進入虛空
+    if (yawObject.position.x > 10) yawObject.position.x = 10;
+    if (yawObject.position.x < -10) yawObject.position.x = -10;
+    if (yawObject.position.z > 125) yawObject.position.z = 125;
+    if (yawObject.position.z < -125) yawObject.position.z = -125;
+
+    // 走路持槍微動 (開鏡時晃動幅度顯著減小，符合真實瞄準手感)
+    if ((Math.abs(player.velocity.x) > 1 || Math.abs(player.velocity.z) > 1) && player.canJump) {
+        const bobMultiplier = player.isAiming ? 0.005 : 0.03;
+        const bob = Math.sin(clock.getElapsedTime() * 11) * bobMultiplier;
+        pitchObject.position.y = bob;
+    } else {
+        pitchObject.position.y = 0;
+    }
+
+    // 後座力與受傷震動
+    if (screenShakeTime > 0) {
+        screenShakeTime -= dt;
+        const shakeAmt = screenShakeTime * 0.35;
+        pitchObject.rotation.z = (Math.random() - 0.5) * shakeAmt;
+    } else {
+        pitchObject.rotation.z = 0;
+    }
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const dt = clock.getDelta();
+
+    if (game.state === 'playing' && !player.isDead) {
+        updatePlayer(dt);
+        zombies.forEach(z => z.update(dt));
+        updateParticles(dt);
+        
+        zombies = zombies.filter(z => !z.isDead);
+
+        // --- [開鏡 ADS 平滑過渡邏輯] ---
+        // 1. 視野 (FOV) 縮放過渡：開鏡時 FOV 從 75 縮小至 40，提供放大瞄準鏡效果
+        const targetFov = player.isAiming ? 40 : 75;
+        camera.fov += (targetFov - camera.fov) * 0.15;
+        camera.updateProjectionMatrix();
+
+        // 2. 槍械 3D 座標過渡：
+        // 開鏡時，槍移到螢幕水平正中央（x:0，y稍抬起，z靠前），讓前準星與螢幕中心的紅十字對齊。
+        // 未開鏡時，收回右下側 (x:0.24, y:-0.22, z:-0.48)
+        const targetGunPos = player.isAiming ? new THREE.Vector3(0.0, -0.155, -0.38) : new THREE.Vector3(0.24, -0.22, -0.48);
+        const targetGunRotY = player.isAiming ? 0.0 : -0.05;
+        
+        gunMesh.position.lerp(targetGunPos, 0.18);
+        gunMesh.rotation.y += (targetGunRotY - gunMesh.rotation.y) * 0.18;
+    }
+
+    renderer.render(scene, camera);
+}
+
+// 啟動初始化
+window.onload = init;
+
+</script>
+</body>
+</html>
